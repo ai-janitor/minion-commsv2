@@ -341,7 +341,9 @@ Both are peers on the comms network — same `send()`, same enforcement. The onl
 ```
 
 Comms behavior by transport:
-- **`poll.sh` reminders** — only for `terminal` agents. Daemons don't need them.
+- **`register` returns a transport-specific playbook:**
+  - **Terminal:** start `poll.sh`, read protocol doc, set context, call `cold_start` on compaction
+  - **Daemon:** watcher manages context re-injection, just check inbox and work
 - **`who()` output** — shows transport type so lead knows which agents are interactive vs headless.
 - **Nag behavior** — terminal agents get reminded to poll. Daemon agents don't.
 
@@ -792,14 +794,14 @@ Comms is runtime-agnostic — it doesn't know about Claude rules, Gemini configs
 - `minion cold-start` response includes the tool catalog for the agent's class
 - `minion --help` and `minion <cmd> --help` for full self-documentation
 
-**Orchestrator injects into runtime:**
-- The installer writes `~/.minion-comms/INSTALLED` (cli path, version, docs path)
-- Orchestrator (minion-swarm, crew YAML, spawn scripts) reads the marker, injects `PATH` and `MINION_CLASS` into agent env
-- How injection works is runtime-specific: Claude rules file, Gemini system prompt, Codex config — that's the swarm's concern, not comms
+**Two transport paths:**
+- **Terminal agents** (human CLI): `register` response is the discovery — includes tool catalog, protocol doc path, and a reminder to start `poll.sh` for background inbox polling. On compaction, agent calls `cold_start` which returns the catalog again. Self-service — no watcher needed.
+- **Daemon agents** (swarm-managed): watcher captures `register` output from `stream-json` and re-injects the tool catalog into the next prompt cycle after compaction. The watcher is the persistence layer.
 
 **Convention files:**
 - Protocol docs at `~/.minion-comms/docs/protocol-{class}.md`
 - `register` and `cold_start` point agents to their class protocol doc
+- Discovery marker at `~/.minion-comms/INSTALLED`
 
 ## Agent Observability Web UI
 

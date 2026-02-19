@@ -88,6 +88,24 @@ def register(
 
         result["triggers"] = format_trigger_codebook()
         result["tools"] = get_tools_for_class(agent_class)
+        if transport == "terminal":
+            result["playbook"] = {
+                "type": "terminal",
+                "steps": [
+                    "Start background inbox polling: poll.sh " + agent_name + " &",
+                    "Read your protocol doc: ~/.minion-comms/docs/protocol-" + agent_class + ".md",
+                    "Set your context: minion set-context --agent " + agent_name + " --context 'loaded'",
+                    "On compaction: call minion cold-start --agent " + agent_name + " to recover state",
+                ],
+            }
+        else:
+            result["playbook"] = {
+                "type": "daemon",
+                "steps": [
+                    "The watcher manages your context — it re-injects tools and state after compaction",
+                    "Just check inbox and work: minion check-inbox --agent " + agent_name,
+                ],
+            }
         return result
     finally:
         conn.close()
