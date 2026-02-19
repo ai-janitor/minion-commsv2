@@ -84,53 +84,6 @@ done
 
 ok "Protocol docs deployed to ${RUNTIME_DIR}/docs/"
 
-# ── Step 4: Configure MCP (optional wrapper) ─────────────────────────────────
-
-if command -v claude &>/dev/null; then
-    info "Configuring MCP via claude CLI..."
-    if claude mcp list 2>/dev/null | grep -q "minion-comms"; then
-        info "minion-comms already configured in Claude Code — skipping"
-    else
-        claude mcp add --scope user minion-comms -- minion mcp-serve 2>/dev/null \
-            || warn "MCP auto-config failed. Run manually: claude mcp add --scope user minion-comms -- minion mcp-serve"
-    fi
-else
-    add_mcp_entry() {
-        local config="$1" name="$2" cmd="$3"
-        shift 3
-        local args=("$@")
-        if [ -f "$config" ] && grep -q "\"${name}\"" "$config" 2>/dev/null; then
-            info "${name} already in ${config} — skipping"
-            return
-        fi
-        if command -v python3 &>/dev/null; then
-            python3 -c "
-import json, os, sys
-p, n, c = sys.argv[1], sys.argv[2], sys.argv[3]
-a = sys.argv[4:]
-d = json.load(open(p)) if os.path.isfile(p) and os.path.getsize(p) > 0 else {}
-d.setdefault('mcpServers', {})[n] = {'type': 'stdio', 'command': c, 'args': a}
-json.dump(d, open(p, 'w'), indent=2)
-" "$config" "$name" "$cmd" "${args[@]}"
-            ok "Added ${name} to ${config}"
-        elif command -v jq &>/dev/null; then
-            if [ -f "$config" ] && [ -s "$config" ]; then
-                jq --arg n "$name" --arg c "$cmd" --argjson a "$(printf '%s\n' "${args[@]}" | jq -R . | jq -s .)" \
-                    '.mcpServers[$n] = {"type": "stdio", "command": $c, "args": $a}' \
-                    "$config" > "${config}.tmp" && mv "${config}.tmp" "$config"
-            else
-                jq -n --arg n "$name" --arg c "$cmd" --argjson a "$(printf '%s\n' "${args[@]}" | jq -R . | jq -s .)" \
-                    '{mcpServers: {($n): {type: "stdio", command: $c, args: $a}}}' > "$config"
-            fi
-            ok "Added ${name} to ${config}"
-        else
-            warn "Run: claude mcp add --scope user minion-comms -- minion mcp-serve"
-        fi
-    }
-
-    add_mcp_entry "$HOME/.claude.json" "minion-comms" "minion" "mcp-serve"
-fi
-
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
