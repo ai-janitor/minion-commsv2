@@ -448,11 +448,13 @@ def sitrep(ctx: click.Context) -> None:
 @click.option("--input-tokens", required=True, type=int)
 @click.option("--output-tokens", required=True, type=int)
 @click.option("--limit", required=True, type=int)
+@click.option("--turn-input", default=None, type=int, help="Per-turn input tokens (current context pressure)")
+@click.option("--turn-output", default=None, type=int, help="Per-turn output tokens (current context pressure)")
 @click.pass_context
-def update_hp(ctx: click.Context, agent: str, input_tokens: int, output_tokens: int, limit: int) -> None:
+def update_hp(ctx: click.Context, agent: str, input_tokens: int, output_tokens: int, limit: int, turn_input: int | None, turn_output: int | None) -> None:
     """Daemon-only: write observed HP to SQLite."""
     from minion_comms.monitoring import update_hp as _update_hp
-    _output(_update_hp(agent, input_tokens, output_tokens, limit), ctx.obj["human"])
+    _output(_update_hp(agent, input_tokens, output_tokens, limit, turn_input, turn_output), ctx.obj["human"])
 
 
 # =========================================================================

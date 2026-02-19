@@ -300,6 +300,8 @@ def update_hp(
     input_tokens: int,
     output_tokens: int,
     limit: int,
+    turn_input: int | None = None,
+    turn_output: int | None = None,
 ) -> dict[str, object]:
     """Daemon-only: write observed HP to SQLite."""
     conn = get_db()
@@ -310,10 +312,12 @@ def update_hp(
                 hp_input_tokens = ?,
                 hp_output_tokens = ?,
                 hp_tokens_limit = ?,
+                hp_turn_input = ?,
+                hp_turn_output = ?,
                 hp_updated_at = ?,
                 last_seen = ?
                WHERE name = ?""",
-            (input_tokens, output_tokens, limit, now, now, agent_name),
+            (input_tokens, output_tokens, limit, turn_input, turn_output, now, now, agent_name),
         )
         conn.commit()
 
@@ -321,7 +325,7 @@ def update_hp(
         return {
             "status": "ok",
             "agent": agent_name,
-            "hp": hp_summary(input_tokens, output_tokens, limit),
+            "hp": hp_summary(input_tokens, output_tokens, limit, turn_input, turn_output),
         }
     finally:
         conn.close()

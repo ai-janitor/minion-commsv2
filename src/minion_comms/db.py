@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS agents (
     hp_input_tokens     INTEGER DEFAULT NULL,
     hp_output_tokens    INTEGER DEFAULT NULL,
     hp_tokens_limit     INTEGER DEFAULT NULL,
+    hp_turn_input       INTEGER DEFAULT NULL,
+    hp_turn_output      INTEGER DEFAULT NULL,
     hp_updated_at       TEXT DEFAULT NULL,
     files_read          TEXT DEFAULT NULL
 );
@@ -165,7 +167,21 @@ def init_db() -> None:
     """Create all tables if they don't exist."""
     conn = get_db()
     conn.executescript(_SCHEMA_SQL)
+    _migrate(conn)
     conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that may be missing in older databases."""
+    cursor = conn.execute("PRAGMA table_info(agents)")
+    existing = {row["name"] for row in cursor.fetchall()}
+    for col, typedef in [
+        ("hp_turn_input", "INTEGER DEFAULT NULL"),
+        ("hp_turn_output", "INTEGER DEFAULT NULL"),
+    ]:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -184,17 +200,43 @@ def get_lead(cursor: sqlite3.Cursor) -> str | None:
     return row[0] if row else None
 
 
-def hp_summary(input_tokens: int | None, output_tokens: int | None, limit: int | None) -> str:
-    """Human-readable HP string from daemon-observed token counts."""
+def hp_summary(
+    input_tokens: int | None,
+    output_tokens: int | None,
+    limit: int | None,
+    turn_input: int | None = None,
+    turn_output: int | None = None,
+) -> str:
+    """Human-readable HP string from daemon-observed token counts.
+
+    Uses per-turn values for HP% when available (actual context pressure),
+    falls back to cumulative. Shows cumulative as session total.
+    """
     if not limit:
         return "HP unknown"
-    used = (input_tokens or 0) + (output_tokens or 0)
-    if used == 0:
+
+    cumulative = (input_tokens or 0) + (output_tokens or 0)
+
+    # Per-turn = current context pressure; cumulative = session total
+    if turn_input is not None or turn_output is not None:
+        used = (turn_input or 0) + (turn_output or 0)
+    else:
+        used = cumulative
+
+    if used == 0 and cumulative == 0:
         return "HP unknown"
+
     pct_used = used / limit * 100
     hp_pct = max(0.0, 100 - pct_used)
     status = "Healthy" if hp_pct > 50 else ("Wounded" if hp_pct > 25 else "CRITICAL")
-    return f"{hp_pct:.0f}% HP [{used // 1000}k/{limit // 1000}k] — {status}"
+
+    base = f"{hp_pct:.0f}% HP [{used // 1000}k/{limit // 1000}k] — {status}"
+
+    # Show cumulative session total when per-turn values are in use
+    if (turn_input is not None or turn_output is not None) and cumulative > 0:
+        base += f" (session: {cumulative // 1000}k)"
+
+    return base
 
 
 def staleness_check(cursor: sqlite3.Cursor, agent_name: str) -> tuple[bool, str]:
@@ -263,7 +305,10 @@ def enrich_agent_row(row: sqlite3.Row, now: datetime.datetime) -> dict[str, Any]
     """Add HP, staleness, and last_seen_mins_ago to an agent row dict."""
     a: dict[str, Any] = dict(row)
 
-    a["hp"] = hp_summary(a.get("hp_input_tokens"), a.get("hp_output_tokens"), a.get("hp_tokens_limit"))
+    a["hp"] = hp_summary(
+        a.get("hp_input_tokens"), a.get("hp_output_tokens"), a.get("hp_tokens_limit"),
+        turn_input=a.get("hp_turn_input"), turn_output=a.get("hp_turn_output"),
+    )
 
     threshold = CLASS_STALENESS_SECONDS.get(a.get("agent_class", ""))
     stale = False
