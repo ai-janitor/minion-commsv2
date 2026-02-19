@@ -798,6 +798,8 @@ Comms is runtime-agnostic — it doesn't know about Claude rules, Gemini configs
 - **Terminal agents** (human CLI): `register` response is the discovery — includes tool catalog, protocol doc path, and a reminder to start `poll.sh` for background inbox polling. On compaction, agent calls `cold_start` which returns the catalog again. Self-service — no watcher needed.
 - **Daemon agents** (swarm-managed): watcher captures `register` output from `stream-json` and re-injects the tool catalog into the next prompt cycle after compaction. The watcher is the persistence layer.
 
+**Agent-friendly output:** CLI output injected into agent context must be concise human-readable text, not verbose JSON. Agents read prompts — they don't parse JSON. `register`, `cold-start`, and `tools` should support a `--compact` flag that returns a tight text summary: tool list as a two-column table, triggers as a table, playbook as bullet points. The daemon should use `--compact` when capturing output for re-injection.
+
 **Convention files:**
 - Protocol docs at `~/.minion-comms/docs/protocol-{class}.md`
 - `register` and `cold_start` point agents to their class protocol doc
