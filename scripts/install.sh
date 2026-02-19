@@ -47,7 +47,22 @@ if ! command -v "${TOOL_NAME}" &>/dev/null; then
     warn '  export PATH="$HOME/.local/bin:$PATH"'
 fi
 
-# ── Step 2: Deploy protocol docs ─────────────────────────────────────────────
+# ── Step 2: Write discovery marker ───────────────────────────────────────────
+
+mkdir -p "${RUNTIME_DIR}"
+
+MINION_PATH="$(command -v "${TOOL_NAME}" 2>/dev/null || echo "unknown")"
+MINION_VERSION="$("${TOOL_NAME}" --version 2>/dev/null | head -1 || echo "unknown")"
+cat > "${RUNTIME_DIR}/INSTALLED" <<MARKER
+cli=${MINION_PATH}
+version=${MINION_VERSION}
+docs=${RUNTIME_DIR}/docs/
+installed=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+MARKER
+
+ok "Discovery marker written to ${RUNTIME_DIR}/INSTALLED"
+
+# ── Step 3: Deploy protocol docs ─────────────────────────────────────────────
 
 info "Deploying protocol docs to ${RUNTIME_DIR}/docs/..."
 
@@ -69,7 +84,7 @@ done
 
 ok "Protocol docs deployed to ${RUNTIME_DIR}/docs/"
 
-# ── Step 3: Configure MCP (optional wrapper) ─────────────────────────────────
+# ── Step 4: Configure MCP (optional wrapper) ─────────────────────────────────
 
 if command -v claude &>/dev/null; then
     info "Configuring MCP via claude CLI..."

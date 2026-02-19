@@ -782,6 +782,12 @@ With CLI, the upgrade process simplifies dramatically — no blue-green deployme
 #### Dogfooding Rule
 Every new feature in minion-comms should be developed BY minion-comms. The crew that uses the system is the best tester of the system. If the crew can't build the feature using the current tools, that gap IS the next requirement.
 
+## Tool Discovery
+
+Agents must discover `minion` without manual per-project configuration. The installer writes a marker file at `~/.minion-comms/INSTALLED` containing the CLI path and version. Any orchestrator (minion-swarm, crew YAML, spawn scripts) checks for this marker before spawning agents. Protocol docs live at `~/.minion-comms/docs/` — agents are pointed there on `cold_start` and `register` responses. The CLI is self-documenting via `minion --help` and `minion <cmd> --help`.
+
+Discovery chain: marker file → orchestrator reads it → injects `PATH` and `MINION_CLASS` into agent env → agent runs `minion register` → register response includes doc locations → agent reads class protocol.
+
 ## Agent Observability Web UI
 
 Web dashboard for raid monitoring. Exposes `sitrep`, `party-status`, task board, HP bars, zone coverage, file claims, and raid log as a live view. Uses WebMCP (`navigator.modelContext`) to register dashboard tools so AI agents can query observability data through the browser natively — structured calls, not screenshot scraping.
