@@ -7,6 +7,7 @@ MINION_CLASS env var gates commands via auth.require_class.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import click
@@ -525,6 +526,27 @@ def hand_off_zone(ctx: click.Context, from_agent: str, to_agents: str, zone: str
     """Direct zone handoff — retiring agent bestows zone to replacements."""
     from minion_comms.crew import hand_off_zone as _hand_off
     _output(_hand_off(from_agent, to_agents, zone), ctx.obj["human"])
+
+
+# =========================================================================
+# Discovery
+# =========================================================================
+
+@main.command()
+@click.option("--class", "agent_class", default="", help="Class to list tools for (default: MINION_CLASS env)")
+@click.pass_context
+def tools(ctx: click.Context, agent_class: str) -> None:
+    """List available tools for your class."""
+    from minion_comms.auth import get_agent_class, get_tools_for_class
+    cls = agent_class or get_agent_class()
+    docs_dir = os.path.expanduser("~/.minion-comms/docs")
+    protocol_file = f"protocol-{cls}.md"
+    result: dict[str, object] = {
+        "class": cls,
+        "tools": get_tools_for_class(cls),
+        "protocol_doc": os.path.join(docs_dir, protocol_file) if os.path.isfile(os.path.join(docs_dir, protocol_file)) else None,
+    }
+    _output(result, ctx.obj["human"])
 
 
 if __name__ == "__main__":

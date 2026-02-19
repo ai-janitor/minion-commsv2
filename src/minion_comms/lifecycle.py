@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any
 
-from minion_comms.auth import CLASS_BRIEFING_FILES
+from minion_comms.auth import CLASS_BRIEFING_FILES, get_tools_for_class
 from minion_comms.db import get_db, now_iso
 from minion_comms.fs import read_content_file
 
@@ -77,6 +77,9 @@ def cold_start(agent_name: str) -> dict[str, object]:
                 f"UPDATE fenix_down_records SET consumed = 1 WHERE id IN ({placeholders})",
                 record_ids,
             )
+
+        # Tool catalog for this class
+        result["tools"] = get_tools_for_class(agent_class)
 
         cursor.execute("UPDATE agents SET last_seen = ? WHERE name = ?", (now, agent_name))
         conn.commit()

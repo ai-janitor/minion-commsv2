@@ -784,9 +784,22 @@ Every new feature in minion-comms should be developed BY minion-comms. The crew 
 
 ## Tool Discovery
 
-Agents must discover `minion` without manual per-project configuration. The installer writes a marker file at `~/.minion-comms/INSTALLED` containing the CLI path and version. Any orchestrator (minion-swarm, crew YAML, spawn scripts) checks for this marker before spawning agents. Protocol docs live at `~/.minion-comms/docs/` — agents are pointed there on `cold_start` and `register` responses. The CLI is self-documenting via `minion --help` and `minion <cmd> --help`.
+Comms is runtime-agnostic — it doesn't know about Claude rules, Gemini configs, or Codex settings. Discovery is the CLI's job; injection is the orchestrator's job.
 
-Discovery chain: marker file → orchestrator reads it → injects `PATH` and `MINION_CLASS` into agent env → agent runs `minion register` → register response includes doc locations → agent reads class protocol.
+**CLI exposes the catalog:**
+- `minion tools` — returns available commands filtered by `MINION_CLASS`, with descriptions and protocol doc path
+- `minion register` response includes the tool catalog for the agent's class
+- `minion cold-start` response includes the tool catalog for the agent's class
+- `minion --help` and `minion <cmd> --help` for full self-documentation
+
+**Orchestrator injects into runtime:**
+- The installer writes `~/.minion-comms/INSTALLED` (cli path, version, docs path)
+- Orchestrator (minion-swarm, crew YAML, spawn scripts) reads the marker, injects `PATH` and `MINION_CLASS` into agent env
+- How injection works is runtime-specific: Claude rules file, Gemini system prompt, Codex config — that's the swarm's concern, not comms
+
+**Convention files:**
+- Protocol docs at `~/.minion-comms/docs/protocol-{class}.md`
+- `register` and `cold_start` point agents to their class protocol doc
 
 ## Agent Observability Web UI
 

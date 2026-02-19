@@ -6,7 +6,7 @@ from __future__ import annotations
 import datetime
 import json
 
-from minion_comms.auth import CLASS_MODEL_WHITELIST, VALID_CLASSES
+from minion_comms.auth import CLASS_MODEL_WHITELIST, VALID_CLASSES, get_tools_for_class
 from minion_comms.db import (
     enrich_agent_row,
     format_trigger_codebook,
@@ -87,6 +87,7 @@ def register(
             result["onboarding"] = onboarding
 
         result["triggers"] = format_trigger_codebook()
+        result["tools"] = get_tools_for_class(agent_class)
         return result
     finally:
         conn.close()

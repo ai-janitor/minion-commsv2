@@ -87,6 +87,65 @@ CLASS_BRIEFING_FILES: dict[str, list[str]] = {
 }
 
 # ---------------------------------------------------------------------------
+# Tool catalog — command → (allowed_classes, description)
+# ---------------------------------------------------------------------------
+
+TOOL_CATALOG: dict[str, tuple[set[str], str]] = {
+    "register":              (VALID_CLASSES, "Register an agent into the session"),
+    "deregister":            (VALID_CLASSES, "Remove an agent from the registry"),
+    "rename":                ({"lead"}, "Rename an agent (zone reassignment)"),
+    "set-status":            (VALID_CLASSES, "Set your current status text"),
+    "set-context":           (VALID_CLASSES, "Update context summary and HP metrics"),
+    "who":                   (VALID_CLASSES, "List all registered agents"),
+    "send":                  (VALID_CLASSES, "Send a message to an agent or broadcast"),
+    "check-inbox":           (VALID_CLASSES, "Check and clear unread messages"),
+    "get-history":           (VALID_CLASSES, "Return last N messages across all agents"),
+    "purge-inbox":           (VALID_CLASSES, "Delete old messages from inbox"),
+    "set-battle-plan":       ({"lead"}, "Set the active battle plan for the session"),
+    "get-battle-plan":       (VALID_CLASSES, "Get battle plan by status"),
+    "update-battle-plan-status": ({"lead"}, "Update a battle plan's status"),
+    "log-raid":              (VALID_CLASSES, "Append an entry to the raid log"),
+    "get-raid-log":          (VALID_CLASSES, "Read the raid log"),
+    "create-task":           ({"lead"}, "Create a new task with spec file"),
+    "assign-task":           ({"lead"}, "Assign a task to an agent"),
+    "update-task":           (VALID_CLASSES, "Update task status, progress, or files"),
+    "get-tasks":             (VALID_CLASSES, "List tasks with filters"),
+    "get-task":              (VALID_CLASSES, "Get full detail for a single task"),
+    "submit-result":         (VALID_CLASSES, "Submit a result file for a task"),
+    "close-task":            ({"lead"}, "Close a completed task"),
+    "claim-file":            ({"lead", "coder", "builder"}, "Claim a file for exclusive editing"),
+    "release-file":          ({"lead", "coder", "builder"}, "Release a file claim"),
+    "get-claims":            (VALID_CLASSES, "List active file claims"),
+    "party-status":          ({"lead"}, "Full raid health dashboard"),
+    "check-activity":        (VALID_CLASSES, "Check an agent's activity level"),
+    "check-freshness":       ({"lead"}, "Check file freshness vs agent's last context"),
+    "sitrep":                (VALID_CLASSES, "Fused COP: agents + tasks + claims + flags"),
+    "update-hp":             ({"lead"}, "Daemon-only: write observed HP to SQLite"),
+    "cold-start":            (VALID_CLASSES, "Bootstrap into a session, get onboarding"),
+    "fenix-down":            (VALID_CLASSES, "Dump session knowledge before context death"),
+    "debrief":               ({"lead"}, "File a session debrief"),
+    "end-session":           ({"lead"}, "End the current session"),
+    "get-triggers":          (VALID_CLASSES, "Return the trigger word codebook"),
+    "clear-moon-crash":      ({"lead"}, "Clear emergency flag, resume assignments"),
+    "list-crews":            ({"lead"}, "List available crew YAML files"),
+    "spawn-party":           ({"lead"}, "Spawn daemon workers in tmux panes"),
+    "stand-down":            ({"lead"}, "Dismiss the party"),
+    "retire-agent":          ({"lead"}, "Signal a single daemon to exit gracefully"),
+    "hand-off-zone":         (VALID_CLASSES, "Direct zone handoff between agents"),
+    "tools":                 (VALID_CLASSES, "List available tools for your class"),
+}
+
+
+def get_tools_for_class(agent_class: str) -> list[dict[str, str]]:
+    """Return tools available to a given class."""
+    result = []
+    for cmd, (classes, desc) in sorted(TOOL_CATALOG.items()):
+        if agent_class in classes:
+            result.append({"command": f"minion {cmd}", "description": desc})
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Authorization helpers
 # ---------------------------------------------------------------------------
 
