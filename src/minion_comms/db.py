@@ -215,28 +215,20 @@ def hp_summary(
     if not limit:
         return "HP unknown"
 
-    cumulative = (input_tokens or 0) + (output_tokens or 0)
-
-    # Per-turn = current context pressure; cumulative = session total
-    if turn_input is not None or turn_output is not None:
-        used = (turn_input or 0) + (turn_output or 0)
+    # Context pressure = input tokens only (output doesn't fill the window)
+    if turn_input is not None:
+        used = turn_input
     else:
-        used = cumulative
+        used = input_tokens or 0
 
-    if used == 0 and cumulative == 0:
+    if used == 0:
         return "HP unknown"
 
     pct_used = used / limit * 100
     hp_pct = max(0.0, 100 - pct_used)
     status = "Healthy" if hp_pct > 50 else ("Wounded" if hp_pct > 25 else "CRITICAL")
 
-    base = f"{hp_pct:.0f}% HP [{used // 1000}k/{limit // 1000}k] — {status}"
-
-    # Show cumulative session total when per-turn values are in use
-    if (turn_input is not None or turn_output is not None) and cumulative > 0:
-        base += f" (session: {cumulative // 1000}k)"
-
-    return base
+    return f"{hp_pct:.0f}% HP [{used // 1000}k/{limit // 1000}k] — {status}"
 
 
 def staleness_check(cursor: sqlite3.Cursor, agent_name: str) -> tuple[bool, str]:
