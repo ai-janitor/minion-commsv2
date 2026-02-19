@@ -2,14 +2,14 @@
 set -euo pipefail
 
 # minion-comms installer
-# Usage: curl -sSL https://raw.githubusercontent.com/hungtrd/minion-commsv2/main/scripts/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/ai-janitor/minion-commsv2/main/scripts/install.sh | bash
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-REPO="https://github.com/hungtrd/minion-commsv2.git"
+REPO="https://github.com/ai-janitor/minion-commsv2.git"
 TOOL_NAME="minion"
 RUNTIME_DIR="$HOME/.minion-comms"
-DOCS_BASE_URL="https://raw.githubusercontent.com/hungtrd/minion-commsv2/main/docs"
+DOCS_BASE_URL="https://raw.githubusercontent.com/ai-janitor/minion-commsv2/main/docs"
 
 # ── Output helpers ────────────────────────────────────────────────────────────
 
