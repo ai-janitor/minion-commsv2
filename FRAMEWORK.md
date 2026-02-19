@@ -169,7 +169,7 @@ Not every class sees every tool. The MCP server filters tool registration based 
 | File safety | Lead, coder, builder | `claim_file`, `release_file`, `get_claims` |
 | Monitoring | Lead only | `party_status`, `check_freshness` |
 | Lifecycle | Lead only | `debrief`, `end_session` |
-| Party management | Lead only | `spawn_party`, `stand_down`, `retire_agent` |
+| Party management | `spawn_party`: any (auto-registers lead from YAML); `stand_down`, `retire_agent`: lead only |
 | Read-only queries | All classes | `get_tasks`, `get_task`, `get_battle_plan`, `get_raid_log`, `check_activity` |
 
 Implementation: `_class_tool(*classes)` decorator wraps `mcp.tool()` — tool only registers if the agent's class is in the allowed set. Convenience aliases: `_lead_tool` = lead only, `_file_tool` = lead/coder/builder.
@@ -355,19 +355,54 @@ user (the human)
             └── party (oracle, coder, builder, recon)
 ```
 
+### Crew YAML Format
+
+A crew is a flat list of agents. Lead is just another role — no special section.
+
+```yaml
+project_dir: .
+agents:
+  redmage:
+    role: lead
+    transport: terminal     # human's session, no tmux pane
+    system: |
+      You are redmage, party leader...
+  zone-lead-audio:
+    role: lead
+    transport: daemon       # daemon lead, gets a tmux pane
+    system: |
+      You are zone-lead-audio...
+  fighter:
+    role: coder
+    system: |
+      You are fighter...
+  whitemage:
+    role: oracle
+    system: |
+      You are whitemage...
+```
+
+- `transport: terminal` agents are auto-registered but NOT spawned into tmux panes (the human is already there)
+- `transport: daemon` (or omitted, default) agents get tmux panes
+- Lead-class agents have full lead privileges regardless of transport — zone leads can create tasks, manage their zone's party, etc.
+
 ### Spawn Party Mechanics
 
-`spawn_party(agent_name, crew, project_dir, agents)` — lead spawns daemon workers from a crew YAML into tmux panes.
+`spawn_party(crew, project_dir, agents)` — spawn a crew from YAML into tmux panes.
+
+**Auto-register:** All agents (including leads) are auto-registered from the crew YAML if not already in the DB. No pre-registration required.
+
+**Terminal agents skipped:** Agents with `transport: terminal` are registered but not spawned into tmux panes. They're the interactive sessions the human controls.
+
+**No `--agent` auth gate:** The human invoking the CLI *is* the authority. The crew YAML is the source of truth.
 
 **Selective spawning:** Pass a comma-separated `agents` list to spawn a subset of the crew. Omit to spawn all agents.
-
-**Lead promotion:** The lead defined in the crew YAML can be spawned as a daemon if explicitly included in the `agents` list. Its config is normalized into the agents dict with `bypassPermissions` mode.
 
 **Name deconfliction:** If an agent name collides with an already-registered agent, comms auto-renames (e.g. `thief` → `thief2`) and patches the system prompt. A runtime-only config is written — the source YAML is never mutated.
 
 **Clean slate on spawn:** `stand_down` flag and per-agent `retire` flags are cleared before spawning. Re-spawning a previously retired agent starts clean.
 
-**Tmux pane titles:** Panes are labeled `name(role)` — e.g. `kevin(oracle)`, `gru(lead)`, `bob(builder)`. Role is pulled from the crew YAML. Makes it easy to see who's who at a glance.
+**Tmux pane titles:** Panes are labeled `name(role)` with color-coded borders by class — e.g. lead=green, coder=red, oracle=blue, builder=yellow, recon=magenta. Same class = same color for visual grouping.
 
 ### Hierarchy
 

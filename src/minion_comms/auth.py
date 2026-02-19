@@ -128,7 +128,7 @@ TOOL_CATALOG: dict[str, tuple[set[str], str]] = {
     "get-triggers":          (VALID_CLASSES, "Return the trigger word codebook"),
     "clear-moon-crash":      ({"lead"}, "Clear emergency flag, resume assignments"),
     "list-crews":            ({"lead"}, "List available crew YAML files"),
-    "spawn-party":           ({"lead"}, "Spawn daemon workers in tmux panes"),
+    "spawn-party":           (VALID_CLASSES, "Spawn daemon workers in tmux panes (auto-registers lead)"),
     "stand-down":            ({"lead"}, "Dismiss the party"),
     "retire-agent":          ({"lead"}, "Signal a single daemon to exit gracefully"),
     "hand-off-zone":         (VALID_CLASSES, "Direct zone handoff between agents"),

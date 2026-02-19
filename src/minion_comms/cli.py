@@ -540,17 +540,14 @@ def list_crews(ctx: click.Context) -> None:
 
 
 @main.command("spawn-party")
-@click.option("--agent", required=True)
 @click.option("--crew", required=True)
 @click.option("--project-dir", default=".")
 @click.option("--agents", default="")
 @click.pass_context
-def spawn_party(ctx: click.Context, agent: str, crew: str, project_dir: str, agents: str) -> None:
-    """Spawn daemon workers in tmux panes. Lead only."""
-    from minion_comms.auth import require_class
-    require_class("lead")(lambda: None)()
+def spawn_party(ctx: click.Context, crew: str, project_dir: str, agents: str) -> None:
+    """Spawn daemon workers in tmux panes. Auto-registers lead from crew YAML."""
     from minion_comms.crew import spawn_party as _spawn_party
-    _output(_spawn_party(agent, crew, project_dir, agents), ctx.obj["human"])
+    _output(_spawn_party(crew, project_dir, agents), ctx.obj["human"])
 
 
 @main.command("stand-down")
