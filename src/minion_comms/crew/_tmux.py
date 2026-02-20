@@ -136,19 +136,23 @@ def kill_all_crews() -> None:
                                capture_output=True)
 
 
-def _short_model(model: str) -> str:
-    """Extract model family name from full model ID (e.g. 'claude-sonnet-4-6' → 'sonnet')."""
+def _short_model(model: str, provider: str = "") -> str:
+    """Extract short display name from model ID or provider."""
     for family in ("opus", "sonnet", "haiku"):
         if family in model:
             return family
+    if model:
+        return model
+    if provider and provider != "claude":
+        return provider
     return ""
 
 
-def style_pane(tmux_session: str, pane_idx: int, agent: str, role: str, model: str = "") -> None:
+def style_pane(tmux_session: str, pane_idx: int, agent: str, role: str, model: str = "", provider: str = "") -> None:
     """Set pane title and class color."""
     color = CLASS_COLORS.get(role, "colour7")
     base_title = f"{agent}({role})" if role else agent
-    short = _short_model(model)
+    short = _short_model(model, provider)
     pane_title = f"{base_title} {short}" if short else base_title
     pane_target = f"{tmux_session}:{0}.{pane_idx}"
 

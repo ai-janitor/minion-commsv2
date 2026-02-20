@@ -284,7 +284,7 @@ def spawn_party(
         session_exists = True
         spawned_agents.append(agent)
 
-        style_pane(tmux_session, pane_idx, agent, agent_roles.get(agent, ""), model=resolved_cfgs.get(agent, {}).get("model", ""))
+        style_pane(tmux_session, pane_idx, agent, agent_roles.get(agent, ""), model=resolved_cfgs.get(agent, {}).get("model", ""), provider=resolved_cfgs.get(agent, {}).get("provider", ""))
         pane_idx += 1
 
     finalize_layout(tmux_session, is_new, pane_count=pane_idx)
