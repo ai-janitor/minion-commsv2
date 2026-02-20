@@ -19,6 +19,7 @@ from minion_comms.crew.terminal import spawn_terminal
 CREW_SEARCH_PATHS = [
     os.path.expanduser("~/.minion-swarm/crews"),
     os.path.expanduser("~/.minion-swarm"),
+    # Project-local crews/ checked at spawn time via _find_crew_file
 ]
 
 # Try bundled crews from minion-swarm package
@@ -31,8 +32,17 @@ except ImportError:
     pass
 
 
-def _find_crew_file(crew_name: str) -> str | None:
-    for d in CREW_SEARCH_PATHS:
+def _all_search_paths(project_dir: str = ".") -> list[str]:
+    """Search paths including project-local crews/ directory."""
+    paths = list(CREW_SEARCH_PATHS)
+    local = os.path.join(os.path.abspath(project_dir), "crews")
+    if local not in paths:
+        paths.insert(0, local)
+    return paths
+
+
+def _find_crew_file(crew_name: str, project_dir: str = ".") -> str | None:
+    for d in _all_search_paths(project_dir):
         candidate = os.path.join(d, f"{crew_name}.yaml")
         if os.path.isfile(candidate):
             return candidate
@@ -52,7 +62,7 @@ def list_crews() -> dict[str, object]:
 
     seen: set[str] = set()
     crews: list[dict[str, Any]] = []
-    for d in CREW_SEARCH_PATHS:
+    for d in _all_search_paths():
         if not os.path.isdir(d):
             continue
         for fname in sorted(os.listdir(d)):
@@ -90,7 +100,7 @@ def spawn_party(
     if not shutil.which("minion-swarm"):
         return {"error": "BLOCKED: minion-swarm required."}
 
-    crew_file = _find_crew_file(crew)
+    crew_file = _find_crew_file(crew, project_dir)
     if not crew_file:
         available: list[str] = []
         for d in CREW_SEARCH_PATHS:
