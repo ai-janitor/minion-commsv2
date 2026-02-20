@@ -26,6 +26,7 @@ def spawn_pane(
         subprocess.run([
             "tmux", "new-session", "-d",
             "-s", tmux_session, "-n", agent,
+            "-x", "220", "-y", "50",
             "bash", "-c", pane_cmd,
         ], check=True)
     else:
@@ -43,9 +44,33 @@ def spawn_pane(
     return True
 
 
-def start_swarm(agent: str, crew_config: str, project_dir: str) -> None:
-    """Start minion-swarm watcher for a daemon agent."""
-    subprocess.run(
-        ["minion-swarm", "start", agent, "--config", crew_config],
-        cwd=project_dir, capture_output=True,
-    )
+TS_DAEMON_DIR = os.path.expanduser("~/projects/minion-swarm/ts-daemon")
+
+
+def start_swarm(agent: str, crew_config: str, project_dir: str, runtime: str = "python") -> None:
+    """Start daemon watcher for an agent.
+
+    runtime='python' uses minion-swarm (original).
+    runtime='ts' uses the TypeScript SDK daemon.
+    """
+    if runtime == "ts":
+        log_file = os.path.join(project_dir, ".minion-swarm", "logs", f"{agent}.log")
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        log_fp = open(log_file, "a")
+        env = {**os.environ, "MINION_CLASS": "lead"}
+        env.pop("CLAUDECODE", None)
+        subprocess.Popen(
+            ["npx", "tsx", "src/main.ts", "--config", crew_config, "--agent", agent],
+            cwd=TS_DAEMON_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=log_fp,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=env,
+        )
+        log_fp.close()
+    else:
+        subprocess.run(
+            ["minion-swarm", "start", agent, "--config", crew_config],
+            cwd=project_dir, capture_output=True,
+        )

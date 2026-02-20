@@ -86,7 +86,7 @@ An oracle assigned to the audio zone becomes `oracle-audio` (role). Their class 
 
 | Class | Archetype | Capability | Lifecycle |
 |---|---|---|---|
-| `lead` | Commander | Coordinates, routes tasks, manages HP bars | Persistent |
+| `lead` | Commander | Delegates, coordinates, tracks progress. No code, no specs, no edits. | Persistent |
 | `coder` | DPS | Edits code — the only class that changes source | Ephemeral |
 | `builder` | Tank | Runs commands — build, test, deploy. No edits. | Ephemeral |
 | `oracle` | Sage/Buffer | Holds zone knowledge, answers questions. No edits, no commands. | Persistent |
@@ -166,7 +166,7 @@ Not every class sees every tool. The MCP server filters tool registration based 
 | Core comms | All classes | `register`, `send`, `check_inbox`, `who`, `set_context` |
 | War room | Lead only | `set_battle_plan`, `update_battle_plan_status` |
 | Task management | Lead only | `create_task`, `assign_task`, `close_task` |
-| File safety | Lead, coder, builder | `claim_file`, `release_file`, `get_claims` |
+| File safety | Coder, builder | `claim_file`, `release_file`; `get_claims` visible to all |
 | Monitoring | Lead only | `party_status`, `check_freshness` |
 | Lifecycle | Lead only | `debrief`, `end_session` |
 | Party management | `spawn_party`: any (auto-registers lead from YAML); `stand_down`, `retire_agent`: lead only |
@@ -544,6 +544,62 @@ Explicit statuses — no ambiguous "inactive" flags.
 
 On new session start, lead reviews old tasks and explicitly marks them — stale, obsolete, or still open. No ambiguity.
 
+### Task Lifecycle
+
+```
+open ──→ assigned ──→ in_progress ──→ fixed ──→ verified ──→ closed
+                          │              │           │
+                          │              │           └─→ test fails (small fix)
+                          │              │                  → reassign to coder (assigned)
+                          │              │
+                          │              └─→ review rejects
+                          │                    → reassign to coder (assigned)
+                          │
+                          └─→ abandoned / stale / obsolete (dead ends)
+```
+
+#### Transition Rules
+
+| From | To | Who | Action Required |
+|------|-----|-----|-----------------|
+| `open` | `assigned` | lead or auto-pull | Task gets an owner via `assign_task` or poll.sh task-pull |
+| `assigned` | `in_progress` | assigned agent | Agent calls `update_task --status in_progress` when starting work |
+| `in_progress` | `fixed` | assigned agent | Agent calls `submit_result` with result file, then `update_task --status fixed` |
+| `fixed` | `verified` | reviewer (recon/oracle) | Code review passes. Reviewer calls `update_task --status verified` |
+| `fixed` | `assigned` | reviewer | Review rejects — lead reassigns to coder with review notes |
+| `verified` | `closed` | lead | Tests pass. Lead calls `close_task` |
+| `verified` | `assigned` | lead | Tests fail — lead reassigns to coder. Small fix = same agent. Bigger = new agent |
+| any | `abandoned` | lead | Won't do, documented why |
+| any | `stale` | lead | From previous session, needs review |
+| any | `obsolete` | lead | Requirements changed |
+
+#### Auto-Pull Task Matching
+
+poll.sh auto-assigns tasks when an agent's inbox is empty:
+
+1. **Priority 1:** `status='assigned' AND assigned_to=agent` — already assigned, just wake the agent
+2. **Priority 2:** `status='open' AND class_required=agent_class AND assigned_to IS NULL` — unassigned task matching agent's class
+3. **Priority 3:** `status='fixed' AND assigned_to IS NULL` — code review tasks, pulled by `recon` or `oracle` agents
+4. **Priority 4:** `status='verified' AND assigned_to IS NULL` — test tasks, pulled by `recon` agents
+
+Auto-pull skips tasks with unresolved `blocked_by`. Race guard: SQLite atomic UPDATE with rowcount check.
+
+For review/test pulls (Priority 3-4), `assigned_to` is set but status is NOT changed — the reviewer/tester changes status after their work.
+
+Each auto-pulled task includes lifecycle instructions in the synthetic message:
+- **open/assigned:** Start with `in_progress`, submit result, set `fixed`
+- **fixed:** Review result file, set `verified` or send notes to lead
+- **verified:** Verify fix works, report to lead for `close-task` or send notes
+
+#### Transition Validation
+
+`update_task` warns (but does not block) when:
+- **Skipped steps:** e.g. `assigned` → `fixed` without `in_progress`
+- **Ownership mismatch:** agent updates a task assigned to someone else
+- **Missing result file:** setting `fixed` without calling `submit_result` first
+
+Warnings appear in the `transition_warning` field of the response.
+
 ## Activity System (Tasks)
 
 - Every `update_task` call increments `activity_count` automatically. No manual logging.
@@ -836,9 +892,9 @@ Comms is runtime-agnostic — it doesn't know about Claude rules, Gemini configs
 **Agent-friendly output:** CLI output injected into agent context must be concise human-readable text, not verbose JSON. Agents read prompts — they don't parse JSON. `register`, `cold-start`, and `tools` should support a `--compact` flag that returns a tight text summary: tool list as a two-column table, triggers as a table, playbook as bullet points. The daemon should use `--compact` when capturing output for re-injection.
 
 **Convention files:**
-- Protocol docs at `~/.minion-comms/docs/protocol-{class}.md`
+- Protocol docs at `~/.minion_work/docs/protocol-{class}.md`
 - `register` and `cold_start` point agents to their class protocol doc
-- Discovery marker at `~/.minion-comms/INSTALLED`
+- Discovery marker at `~/.minion_work/INSTALLED`
 
 ## Agent Observability Web UI
 
@@ -846,7 +902,7 @@ Web dashboard for raid monitoring. Exposes `sitrep`, `party-status`, task board,
 
 ## Installation
 
-`curl -sSL <raw-url>/scripts/install.sh | bash` — installs `minion` CLI, deploys protocol docs to `~/.minion-comms/docs/`, configures MCP integration. Idempotent.
+`curl -sSL <raw-url>/scripts/install.sh | bash` — installs `minion` CLI, deploys protocol docs to `~/.minion_work/docs/`, configures MCP integration. Idempotent.
 
 ## Open Questions — Prioritized
 
@@ -858,15 +914,15 @@ Web dashboard for raid monitoring. Exposes `sitrep`, `party-status`, task board,
 
     **The split:**
     - **SQLite owns transactions:** message delivery tracking (from, to, timestamp, read flag, `content_file` path), task state transitions (assigned, in_progress, completed, `spec_file` / `result_file` paths), file claims (agent, filepath, timestamp), session lifecycle (battle plan status, session boundaries).
-    - **Filesystem owns content:** message bodies, task specs, result files, zone summaries, loot, raid log entries, traps. The stuff agents actually read. Stored as files in `.minion-comms/` and `.dead-drop/`.
+    - **Filesystem owns content:** message bodies, task specs, result files, zone summaries, loot, raid log entries, traps. The stuff agents actually read. Stored as files in `~/.minion_work/<project>/` and `.dead-drop/`.
     - **Why:** SQLite's single-writer lock (`SQLITE_BUSY`) doesn't matter for small transactional writes (update a status, flip a read flag). It kills you when agents dump 4k message bodies through it concurrently. Keep transactions small, content external.
 
     **Filesystem layout (Vercel pattern):**
-    - **Messages:** `.minion-comms/inbox/<agent>/<timestamp>-<from>-<slug>.md` — one file per message body. DB tracks delivery metadata + path. `ls` = inbox check.
-    - **Tasks:** `.minion-comms/tasks/<id>-<slug>/` — directory per task. `spec.md`, `result.md`, notes. DB tracks state machine (status, assignee, blockers) + paths.
-    - **Claims:** `.minion-comms/claims/<filepath-hash>.lock` — lock files. Atomic create via `O_CREAT|O_EXCL` — OS-level mutual exclusion.
-    - **Battle plan:** `.minion-comms/battle-plan.md` — single file. DB tracks status (active/superseded/completed).
-    - **Raid log:** `.minion-comms/raid-log/<timestamp>-<agent>-<priority>.md` — append-only, one file per entry.
+    - **Messages:** `~/.minion_work/<project>/inbox/<agent>/<timestamp>-<from>-<slug>.md` — one file per message body. DB tracks delivery metadata + path. `ls` = inbox check.
+    - **Tasks:** `~/.minion_work/<project>/tasks/<id>-<slug>/` — directory per task. `spec.md`, `result.md`, notes. DB tracks state machine (status, assignee, blockers) + paths.
+    - **Claims:** `~/.minion_work/<project>/claims/<filepath-hash>.lock` — lock files. Atomic create via `O_CREAT|O_EXCL` — OS-level mutual exclusion.
+    - **Battle plan:** `~/.minion_work/<project>/battle-plan.md` — single file. DB tracks status (active/superseded/completed).
+    - **Raid log:** `~/.minion_work/<project>/raid-log/<timestamp>-<agent>-<priority>.md` — append-only, one file per entry.
     - Agents can bypass the CLI and read files directly when the CLI is unavailable (bootstrap, self-upgrade, emergency).
 
     **Dynamic cast profiling (SQLite):** Agents load from crew YAML (static birth config — name, class, system prompt, zone). But mid-session, responsibilities change: oracle zone splits, role reassignments, zone handoffs, hot-swapping a coder to oracle. SQLite tracks the live cast profile:

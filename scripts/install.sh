@@ -8,7 +8,7 @@ set -euo pipefail
 
 REPO="https://github.com/ai-janitor/minion-commsv2.git"
 TOOL_NAME="minion"
-RUNTIME_DIR="$HOME/.minion-comms"
+RUNTIME_DIR="$HOME/.minion_work"
 DOCS_BASE_URL="https://raw.githubusercontent.com/ai-janitor/minion-commsv2/main/docs"
 
 # ── Output helpers ────────────────────────────────────────────────────────────

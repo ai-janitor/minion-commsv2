@@ -14,6 +14,10 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["mcp[cli]>=1.0.0"]
+dag = ["minion-tasks>=0.1.0"]
+
+[tool.uv.sources]
+minion-tasks = { path = "../minion-tasks", editable = true }
 
 [project.scripts]
 minion = "minion_comms.cli:main"

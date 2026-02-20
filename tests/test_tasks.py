@@ -86,6 +86,68 @@ class TestUpdateTask:
         os.unlink(f.name)
 
 
+class TestTransitionWarnings:
+    def _make_task(self, lead, coder):
+        """Helper: create + assign a task, return task_id."""
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            f.write(b"spec")
+            create_task(lead, "task1", f.name)
+        assign_task(lead, 1, coder)
+        self._tmpfiles = getattr(self, "_tmpfiles", [])
+        self._tmpfiles.append(f.name)
+        return 1
+
+    def test_skip_in_progress_warns(self, isolated_db, lead_agent, coder_agent, battle_plan):
+        """assigned → fixed skips in_progress — should warn."""
+        self._make_task(lead_agent, coder_agent)
+        result = update_task(coder_agent, 1, status="fixed")
+        assert "transition_warning" in result
+        assert "Skipped steps" in result["transition_warning"]
+        for f in self._tmpfiles:
+            os.unlink(f)
+
+    def test_valid_transition_no_warning(self, isolated_db, lead_agent, coder_agent, battle_plan):
+        """assigned → in_progress is valid — no transition_warning."""
+        self._make_task(lead_agent, coder_agent)
+        result = update_task(coder_agent, 1, status="in_progress")
+        assert "transition_warning" not in result
+        for f in self._tmpfiles:
+            os.unlink(f)
+
+    def test_ownership_warning(self, isolated_db, lead_agent, coder_agent, battle_plan):
+        """Agent B updates agent A's task — should warn about ownership."""
+        self._make_task(lead_agent, coder_agent)
+        register("other1", "coder")
+        result = update_task("other1", 1, status="in_progress")
+        assert "transition_warning" in result
+        assert "Ownership" in result["transition_warning"]
+        for f in self._tmpfiles:
+            os.unlink(f)
+
+    def test_fixed_without_result_warns(self, isolated_db, lead_agent, coder_agent, battle_plan):
+        """Setting fixed without submit_result — should warn."""
+        self._make_task(lead_agent, coder_agent)
+        update_task(coder_agent, 1, status="in_progress")
+        result = update_task(coder_agent, 1, status="fixed")
+        assert "transition_warning" in result
+        assert "submit_result" in result["transition_warning"]
+        for f in self._tmpfiles:
+            os.unlink(f)
+
+    def test_fixed_with_result_no_result_warning(self, isolated_db, lead_agent, coder_agent, battle_plan):
+        """Setting fixed after submit_result — no result warning."""
+        self._make_task(lead_agent, coder_agent)
+        update_task(coder_agent, 1, status="in_progress")
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as rf:
+            rf.write(b"result")
+            self._tmpfiles.append(rf.name)
+            submit_result(coder_agent, 1, rf.name)
+        result = update_task(coder_agent, 1, status="fixed")
+        assert "transition_warning" not in result or "submit_result" not in result.get("transition_warning", "")
+        for f in self._tmpfiles:
+            os.unlink(f)
+
+
 class TestCloseTask:
     def test_close_task_requires_result(self, isolated_db, lead_agent, battle_plan):
         with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:

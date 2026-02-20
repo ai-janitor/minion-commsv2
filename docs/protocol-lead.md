@@ -25,6 +25,15 @@ All common tools plus:
 Conserve. Every message costs HP. Offload to sub-leads early.
 Write raid log continuously — if you go down, the next lead reads it.
 
+## HP Self-Reporting (Terminal Transport)
+
+Terminal agents have no daemon tracking tokens. They must report HP manually with every set-context call:
+
+    minion set-context --agent <name> --context "<N>% | <current task>" --hp <0-100>
+
+HP = approximate percentage of context remaining. Start at 95. Drop as context fills.
+Threshold alerts (25%, 10%) fire automatically to the lead when --hp is used.
+
 ## Key Rules
 
 - Set battle plan BEFORE any task assignments

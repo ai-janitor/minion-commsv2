@@ -156,11 +156,13 @@ def set_status(ctx: click.Context, agent: str, status: str) -> None:
 @click.option("--context", required=True)
 @click.option("--tokens-used", default=0, type=int)
 @click.option("--tokens-limit", default=0, type=int)
+@click.option("--hp", default=None, type=int, help="Self-reported HP 0-100 (skips daemon token counting)")
+@click.option("--files-modified", default="", help="Comma-separated files modified this turn; warns if unclaimed")
 @click.pass_context
-def set_context(ctx: click.Context, agent: str, context: str, tokens_used: int, tokens_limit: int) -> None:
+def set_context(ctx: click.Context, agent: str, context: str, tokens_used: int, tokens_limit: int, hp: int | None, files_modified: str) -> None:
     """Update context summary and HP metrics."""
     from minion_comms.comms import set_context as _set_context
-    _output(_set_context(agent, context, tokens_used, tokens_limit), ctx.obj["human"])
+    _output(_set_context(agent, context, tokens_used, tokens_limit, hp, files_modified), ctx.obj["human"])
 
 
 @main.command()
@@ -282,13 +284,15 @@ def get_raid_log(ctx: click.Context, priority: str, count: int, agent: str) -> N
 @click.option("--project", default="")
 @click.option("--zone", default="")
 @click.option("--blocked-by", default="")
+@click.option("--class-required", default="", help="Agent class required (e.g. coder, builder, recon)")
+@click.option("--type", "task_type", default="bugfix", help="Task flow type (default: bugfix)")
 @click.pass_context
-def create_task(ctx: click.Context, agent: str, title: str, task_file: str, project: str, zone: str, blocked_by: str) -> None:
+def create_task(ctx: click.Context, agent: str, title: str, task_file: str, project: str, zone: str, blocked_by: str, class_required: str, task_type: str) -> None:
     """Create a new task. Lead only."""
     from minion_comms.auth import require_class
     require_class("lead")(lambda: None)()
     from minion_comms.tasks import create_task as _create_task
-    _output(_create_task(agent, title, task_file, project, zone, blocked_by), ctx.obj["human"])
+    _output(_create_task(agent, title, task_file, project, zone, blocked_by, class_required, task_type), ctx.obj["human"])
 
 
 @main.command("assign-task")
@@ -322,12 +326,13 @@ def update_task(ctx: click.Context, agent: str, task_id: int, status: str, progr
 @click.option("--project", default="")
 @click.option("--zone", default="")
 @click.option("--assigned-to", default="")
+@click.option("--class-required", default="", help="Filter by required agent class")
 @click.option("--count", default=50, type=int)
 @click.pass_context
-def get_tasks(ctx: click.Context, status: str, project: str, zone: str, assigned_to: str, count: int) -> None:
+def get_tasks(ctx: click.Context, status: str, project: str, zone: str, assigned_to: str, class_required: str, count: int) -> None:
     """List tasks."""
     from minion_comms.tasks import get_tasks as _get_tasks
-    _output(_get_tasks(status, project, zone, assigned_to, count), ctx.obj["human"])
+    _output(_get_tasks(status, project, zone, assigned_to, class_required, count), ctx.obj["human"])
 
 
 @main.command("get-task")
@@ -337,6 +342,15 @@ def get_task(ctx: click.Context, task_id: int) -> None:
     """Get full detail for a single task."""
     from minion_comms.tasks import get_task as _get_task
     _output(_get_task(task_id), ctx.obj["human"])
+
+
+@main.command("task-lineage")
+@click.option("--task-id", required=True, type=int)
+@click.pass_context
+def task_lineage(ctx: click.Context, task_id: int) -> None:
+    """Show task lineage — DAG history and who worked each stage."""
+    from minion_comms.tasks import get_task_lineage as _get_lineage
+    _output(_get_lineage(task_id), ctx.obj["human"])
 
 
 @main.command("submit-result")
@@ -360,6 +374,50 @@ def close_task(ctx: click.Context, agent: str, task_id: int) -> None:
     require_class("lead")(lambda: None)()
     from minion_comms.tasks import close_task as _close_task
     _output(_close_task(agent, task_id), ctx.obj["human"])
+
+
+@main.command("pull-task")
+@click.option("--agent", required=True)
+@click.option("--task-id", required=True, type=int)
+@click.pass_context
+def pull_task_cmd(ctx: click.Context, agent: str, task_id: int) -> None:
+    """Claim a specific task by ID."""
+    from minion_comms.tasks import pull_task as _pull_task
+    _output(_pull_task(agent, task_id), ctx.obj["human"])
+
+
+@main.command("complete-task")
+@click.option("--agent", required=True)
+@click.option("--task-id", required=True, type=int)
+@click.option("--failed", is_flag=True, help="Mark as failed (routes to fail branch in DAG)")
+@click.pass_context
+def complete_task_cmd(ctx: click.Context, agent: str, task_id: int, failed: bool) -> None:
+    """DAG-routed task completion."""
+    from minion_comms.tasks import complete_task as _complete_task
+    _output(_complete_task(agent, task_id, passed=not failed), ctx.obj["human"])
+
+
+@main.command()
+@click.option("--agent", required=True)
+@click.option("--interval", default=5, type=int, help="Poll interval in seconds")
+@click.option("--timeout", default=0, type=int, help="Timeout in seconds (0 = forever)")
+@click.pass_context
+def poll(ctx: click.Context, agent: str, interval: int, timeout: int) -> None:
+    """Poll for messages and tasks. Returns content when available."""
+    from minion_comms.polling import poll_loop
+    result = poll_loop(agent, interval, timeout)
+    exit_code = result.pop("exit_code", 1)
+    if result:
+        _output(result, ctx.obj["human"])
+    sys.exit(exit_code)
+
+
+@main.command("list-flows")
+@click.pass_context
+def list_flows_cmd(ctx: click.Context) -> None:
+    """List available task flow types."""
+    from minion_comms.flow_bridge import available_flows
+    _output({"flows": available_flows()}, ctx.obj["human"])
 
 
 # =========================================================================
@@ -545,11 +603,13 @@ def list_crews(ctx: click.Context) -> None:
 @click.option("--crew", required=True)
 @click.option("--project-dir", default=".")
 @click.option("--agents", default="")
+@click.option("--runtime", type=click.Choice(["python", "ts"]), default="python",
+              help="Daemon runtime: python (minion-swarm) or ts (SDK daemon).")
 @click.pass_context
-def spawn_party(ctx: click.Context, crew: str, project_dir: str, agents: str) -> None:
+def spawn_party(ctx: click.Context, crew: str, project_dir: str, agents: str, runtime: str) -> None:
     """Spawn daemon workers in tmux panes. Auto-registers lead from crew YAML."""
     from minion_comms.crew import spawn_party as _spawn_party
-    _output(_spawn_party(crew, project_dir, agents), ctx.obj["human"])
+    _output(_spawn_party(crew, project_dir, agents, runtime=runtime), ctx.obj["human"])
 
 
 @main.command("stand-down")
@@ -598,7 +658,8 @@ def tools(ctx: click.Context, agent_class: str) -> None:
     """List available tools for your class."""
     from minion_comms.auth import get_agent_class, get_tools_for_class
     cls = agent_class or get_agent_class()
-    docs_dir = os.path.expanduser("~/.minion-comms/docs")
+    from minion_comms.db import DOCS_DIR
+    docs_dir = DOCS_DIR
     protocol_file = f"protocol-{cls}.md"
     result: dict[str, object] = {
         "class": cls,

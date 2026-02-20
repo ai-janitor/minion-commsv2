@@ -23,7 +23,7 @@ Read `AGENTS.md` for the universal agent playbook (boot sequence, classes, HP, h
 | Agent lifecycle (cold-start, fenix-down) | `src/minion_comms/lifecycle.py` |
 | Full framework spec | `FRAMEWORK.md` |
 | Agent protocol docs | `docs/protocol-{class}.md` |
-| Daemon polling | `scripts/poll.sh` |
+| Daemon polling | `src/minion_comms/polling.py` |
 | Tests | `tests/test_*.py` (mirror source modules) |
 
 ## CLI Gotchas

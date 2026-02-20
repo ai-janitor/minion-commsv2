@@ -371,6 +371,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dag = [
+    { name = "minion-tasks" },
+]
 mcp = [
     { name = "mcp", extra = ["cli"] },
 ]
@@ -379,9 +382,27 @@ mcp = [
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=1.0.0" },
+    { name = "minion-tasks", marker = "extra == 'dag'", editable = "../minion-tasks" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
-provides-extras = ["mcp"]
+provides-extras = ["mcp", "dag"]
+
+[[package]]
+name = "minion-tasks"
+version = "0.1.0"
+source = { editable = "../minion-tasks" }
+dependencies = [
+    { name = "click" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "pycparser"

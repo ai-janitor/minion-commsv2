@@ -15,7 +15,7 @@ def spawn_terminal(
     """Launch an interactive claude session in a new Terminal.app window."""
     system_prompt = cfg.get("system", "").strip()
     poll_instruction = (
-        f"\n\nIMPORTANT: On startup, run `poll.sh {agent} &` "
+        f"\n\nIMPORTANT: On startup, run `minion poll --agent {agent} &` "
         f"in the background to receive messages from other agents."
     )
     full_prompt = (system_prompt + poll_instruction) if system_prompt else ""

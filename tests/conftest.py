@@ -16,6 +16,7 @@ def isolated_db(tmp_path, monkeypatch):
     import minion_comms.db as db_mod
     monkeypatch.setattr(db_mod, "DB_PATH", db_path)
     monkeypatch.setattr(db_mod, "RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(db_mod, "DOCS_DIR", str(tmp_path / "docs"))
 
     import minion_comms.fs as fs_mod
     monkeypatch.setattr(fs_mod, "INBOX_DIR", str(tmp_path / "inbox"))

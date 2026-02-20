@@ -45,9 +45,10 @@ Use in messages for fast coordination. Server detects automatically.
 
 ## Filesystem Locations
 
-- Messages: `~/.minion-comms/inbox/<agent>/`
-- Battle plans: `~/.minion-comms/battle-plans/`
-- Raid log: `~/.minion-comms/raid-log/`
+- Messages: `~/.minion_work/<project>/inbox/<agent>/`
+- Battle plans: `~/.minion_work/<project>/battle-plans/`
+- Raid log: `~/.minion_work/<project>/raid-log/`
+- Protocol docs: `~/.minion_work/docs/`
 - Loot: `.dead-drop/<agent>/`
 - Intel: `.dead-drop/intel/`
 - Traps: `.dead-drop/traps/`

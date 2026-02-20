@@ -159,6 +159,67 @@ class TestSend:
         assert msg["content"] == "test content body"
         assert os.path.exists(msg["content_file"])
 
+    def test_send_artifact_nudge_fires_for_large_inline_message(self, isolated_db, battle_plan, coder_agent):
+        # Large message with no file path reference should trigger artifact_reminder
+        set_context(coder_agent, "loaded")
+        long_inline = "This is a detailed spec review. " * 20  # >500 chars, no .md path
+        result = send(coder_agent, coder_agent, long_inline)
+        assert "artifact_reminder" in result
+        check_inbox(coder_agent)  # clear inbox for next test
+
+    def test_send_artifact_nudge_skipped_for_short_message(self, isolated_db, battle_plan, coder_agent):
+        set_context(coder_agent, "loaded")
+        result = send(coder_agent, coder_agent, "short message")
+        assert "artifact_reminder" not in result
+        check_inbox(coder_agent)
+
+    def test_send_artifact_nudge_skipped_when_file_path_present(self, isolated_db, battle_plan, coder_agent):
+        # Large message referencing a .md file should NOT trigger nudge
+        set_context(coder_agent, "loaded")
+        long_with_path = ("Review complete. See .dead-drop/ui-dashboard/spec-review.md for details. " * 10)
+        result = send(coder_agent, coder_agent, long_with_path)
+        assert "artifact_reminder" not in result
+        check_inbox(coder_agent)
+
+
+class TestTaskNudge:
+    """BUG-002: send() nudges lead when target agent has no open task."""
+
+    def _make_task_file(self, tmp_path):
+        f = tmp_path / "task.md"
+        f.write_text("# task")
+        return str(f)
+
+    def test_nudge_fires_when_lead_sends_with_no_task(self, isolated_db, battle_plan, coder_agent):
+        # Lead sends to coder with no task assigned → nudge in response
+        set_context("lead", "loaded")
+        result = send("lead", coder_agent, "work on this feature")
+        assert "nudge" in result
+        assert coder_agent in result["nudge"]
+
+    def test_nudge_absent_when_assigned_task_exists(self, isolated_db, battle_plan, coder_agent, tmp_path):
+        from minion_comms.tasks import assign_task, create_task
+        task_file = self._make_task_file(tmp_path)
+        ct = create_task("lead", "Fix the thing", task_file)
+        assign_task("lead", ct["task_id"], coder_agent)
+        set_context("lead", "loaded")
+        result = send("lead", coder_agent, "here is your task")
+        assert "nudge" not in result
+
+    def test_nudge_absent_for_non_lead_sender(self, isolated_db, battle_plan, coder_agent):
+        # Coder → coder: no nudge regardless of tasks
+        from minion_comms.comms import register
+        register("coder2", "coder")
+        set_context(coder_agent, "loaded")
+        result = send(coder_agent, "coder2", "hello")
+        assert "nudge" not in result
+
+    def test_nudge_absent_when_send_to_all(self, isolated_db, battle_plan):
+        # Lead broadcasts to "all" — nudge logic skipped
+        set_context("lead", "loaded")
+        result = send("lead", "all", "standup time")
+        assert "nudge" not in result
+
 
 class TestCheckInbox:
     def test_empty_inbox(self, isolated_db, coder_agent):

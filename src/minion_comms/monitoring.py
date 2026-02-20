@@ -7,8 +7,8 @@ import json
 import os
 from typing import Any
 
-from minion_comms.db import enrich_agent_row, get_db, now_iso
-from minion_comms.fs import read_content_file
+from minion_comms.db import enrich_agent_row, get_db, get_lead, now_iso
+from minion_comms.fs import atomic_write_file, message_file_path, read_content_file
 
 
 def _safe_mtime(file_path: str) -> str | None:
@@ -295,6 +295,49 @@ def sitrep() -> dict[str, object]:
         conn.close()
 
 
+def _fire_hp_alerts(agent_name: str, hp_pct: float) -> None:
+    """Check HP thresholds, send alerts to lead, track fired state. Own DB connection."""
+    conn = get_db()
+    now = now_iso()
+    try:
+        cursor = conn.cursor()
+        lead = get_lead(cursor)
+        if not lead:
+            return
+
+        cursor.execute("SELECT hp_alerts_fired FROM agents WHERE name = ?", (agent_name,))
+        row = cursor.fetchone()
+        raw = row["hp_alerts_fired"] if row else None
+        alerts_fired: list[str] = json.loads(raw) if raw else []
+
+        if hp_pct > 50:
+            # Recovery — reset so alerts can re-fire if agent drops again
+            alerts_fired = []
+        else:
+            thresholds = [
+                (25, f"⚠️ {agent_name} at {hp_pct:.0f}% HP — consider fenix-down"),
+                (10, f"🚨 {agent_name} at {hp_pct:.0f}% HP — fenix-down NOW or lose knowledge"),
+            ]
+            for threshold, message in thresholds:
+                key = str(threshold)
+                if hp_pct <= threshold and key not in alerts_fired:
+                    content_file = message_file_path(lead, "system")
+                    atomic_write_file(content_file, message)
+                    cursor.execute(
+                        "INSERT INTO messages (from_agent, to_agent, content_file, timestamp, read_flag, is_cc) VALUES (?, ?, ?, ?, 0, 0)",
+                        ("system", lead, content_file, now),
+                    )
+                    alerts_fired.append(key)
+
+        conn.execute(
+            "UPDATE agents SET hp_alerts_fired = ? WHERE name = ?",
+            (json.dumps(alerts_fired) if alerts_fired else None, agent_name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def update_hp(
     agent_name: str,
     input_tokens: int,
@@ -307,6 +350,14 @@ def update_hp(
     conn = get_db()
     now = now_iso()
     try:
+        # Gate entire function (DB write + alert logic) for self-reported agents
+        cursor = conn.cursor()
+        cursor.execute("SELECT hp_tokens_limit FROM agents WHERE name = ?", (agent_name,))
+        gate_row = cursor.fetchone()
+        if gate_row and gate_row["hp_tokens_limit"] == 100:
+            from minion_comms.db import hp_summary
+            return {"status": "ok", "agent": agent_name, "hp": "self-reported"}
+
         conn.execute(
             """UPDATE agents SET
                 hp_input_tokens = ?,
@@ -319,7 +370,19 @@ def update_hp(
                WHERE name = ?""",
             (input_tokens, output_tokens, limit, turn_input, turn_output, now, now, agent_name),
         )
+
+        # Compute HP% for threshold checking
+        hp_pct_to_check = None
+        if limit:
+            used = turn_input if turn_input is not None else min(input_tokens or 0, limit)
+            if used > 0:
+                hp_pct_to_check = max(0.0, 100 - (used / limit * 100))
+
         conn.commit()
+
+        # Fire alerts via self-contained function (opens own connection)
+        if hp_pct_to_check is not None:
+            _fire_hp_alerts(agent_name, hp_pct_to_check)
 
         from minion_comms.db import hp_summary
         return {

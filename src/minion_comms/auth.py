@@ -59,6 +59,15 @@ TASK_STATUSES = {
     "closed", "abandoned", "stale", "obsolete",
 }
 
+# Valid state transitions — warn (don't block) when skipped
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "open": {"assigned", "abandoned", "stale", "obsolete"},
+    "assigned": {"in_progress", "abandoned", "stale", "obsolete"},
+    "in_progress": {"fixed", "abandoned", "stale", "obsolete"},
+    "fixed": {"verified", "assigned", "abandoned", "stale", "obsolete"},
+    "verified": {"closed", "assigned", "abandoned", "stale", "obsolete"},
+}
+
 # ---------------------------------------------------------------------------
 # Trigger words (brevity codes)
 # ---------------------------------------------------------------------------
@@ -79,11 +88,11 @@ TRIGGER_WORDS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 CLASS_BRIEFING_FILES: dict[str, list[str]] = {
-    "lead": [".dead-drop/CODE_MAP.md", ".dead-drop/CODE_OWNERS.md", ".dead-drop/traps/"],
-    "coder": [".dead-drop/CODE_MAP.md", ".dead-drop/traps/"],
-    "builder": [".dead-drop/CODE_MAP.md", ".dead-drop/traps/"],
-    "oracle": [".dead-drop/CODE_MAP.md", ".dead-drop/CODE_OWNERS.md", ".dead-drop/intel/", ".dead-drop/traps/"],
-    "recon": [".dead-drop/CODE_MAP.md", ".dead-drop/intel/", ".dead-drop/traps/"],
+    "lead": [".minion-comms/CODE_MAP.md", ".minion-comms/CODE_OWNERS.md", ".minion-comms/traps/"],
+    "coder": [".minion-comms/CODE_MAP.md", ".minion-comms/traps/"],
+    "builder": [".minion-comms/CODE_MAP.md", ".minion-comms/traps/"],
+    "oracle": [".minion-comms/CODE_MAP.md", ".minion-comms/CODE_OWNERS.md", ".minion-comms/intel/", ".minion-comms/traps/"],
+    "recon": [".minion-comms/CODE_MAP.md", ".minion-comms/intel/", ".minion-comms/traps/"],
 }
 
 # ---------------------------------------------------------------------------
@@ -113,8 +122,8 @@ TOOL_CATALOG: dict[str, tuple[set[str], str]] = {
     "get-task":              (VALID_CLASSES, "Get full detail for a single task"),
     "submit-result":         (VALID_CLASSES, "Submit a result file for a task"),
     "close-task":            ({"lead"}, "Close a completed task"),
-    "claim-file":            ({"lead", "coder", "builder"}, "Claim a file for exclusive editing"),
-    "release-file":          ({"lead", "coder", "builder"}, "Release a file claim"),
+    "claim-file":            ({"coder", "builder"}, "Claim a file for exclusive editing"),
+    "release-file":          ({"coder", "builder"}, "Release a file claim"),
     "get-claims":            (VALID_CLASSES, "List active file claims"),
     "party-status":          ({"lead"}, "Full raid health dashboard"),
     "check-activity":        (VALID_CLASSES, "Check an agent's activity level"),
@@ -133,6 +142,11 @@ TOOL_CATALOG: dict[str, tuple[set[str], str]] = {
     "retire-agent":          ({"lead"}, "Signal a single daemon to exit gracefully"),
     "hand-off-zone":         (VALID_CLASSES, "Direct zone handoff between agents"),
     "tools":                 (VALID_CLASSES, "List available tools for your class"),
+    "pull-task":             (VALID_CLASSES, "Auto-pull next actionable task from DAG"),
+    "task-lineage":          (VALID_CLASSES, "Show task DAG history and who worked each stage"),
+    "complete-task":         (VALID_CLASSES, "DAG-routed task completion"),
+    "poll":                  (VALID_CLASSES, "Poll for messages and tasks (replaces poll.sh)"),
+    "list-flows":            (VALID_CLASSES, "List available task flow types"),
 }
 
 

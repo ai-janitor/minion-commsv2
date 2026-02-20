@@ -18,16 +18,15 @@ import sqlite3
 from typing import Any
 
 from minion_comms.auth import CLASS_STALENESS_SECONDS, TRIGGER_WORDS
+from minion_comms.defaults import resolve_db_path, resolve_docs_dir
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
-DB_PATH = os.getenv(
-    "MINION_COMMS_DB_PATH",
-    os.path.expanduser("~/.minion-comms/minion.db"),
-)
+DB_PATH = resolve_db_path()
 RUNTIME_DIR = os.path.dirname(DB_PATH)
+DOCS_DIR = resolve_docs_dir()
 
 # ---------------------------------------------------------------------------
 # Connection
@@ -70,7 +69,8 @@ CREATE TABLE IF NOT EXISTS agents (
     hp_turn_input       INTEGER DEFAULT NULL,
     hp_turn_output      INTEGER DEFAULT NULL,
     hp_updated_at       TEXT DEFAULT NULL,
-    files_read          TEXT DEFAULT NULL
+    files_read          TEXT DEFAULT NULL,
+    hp_alerts_fired     TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -119,6 +119,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_by      TEXT NOT NULL,
     files           TEXT DEFAULT NULL,
     progress        TEXT DEFAULT NULL,
+    class_required  TEXT DEFAULT NULL,
+    task_type       TEXT DEFAULT 'bugfix',
     activity_count  INTEGER NOT NULL DEFAULT 0,
     result_file     TEXT DEFAULT NULL,
     created_at      TEXT NOT NULL,
@@ -160,6 +162,15 @@ CREATE TABLE IF NOT EXISTS agent_retire (
     set_at      TEXT NOT NULL,
     set_by      TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_history (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id     INTEGER NOT NULL,
+    from_status TEXT,
+    to_status   TEXT NOT NULL,
+    agent       TEXT NOT NULL,
+    timestamp   TEXT NOT NULL
+);
 """
 
 
@@ -173,14 +184,27 @@ def init_db() -> None:
 
 def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns that may be missing in older databases."""
+    # Agents table migrations
     cursor = conn.execute("PRAGMA table_info(agents)")
-    existing = {row["name"] for row in cursor.fetchall()}
+    agent_cols = {row["name"] for row in cursor.fetchall()}
     for col, typedef in [
         ("hp_turn_input", "INTEGER DEFAULT NULL"),
         ("hp_turn_output", "INTEGER DEFAULT NULL"),
+        ("hp_alerts_fired", "TEXT DEFAULT NULL"),
     ]:
-        if col not in existing:
+        if col not in agent_cols:
             conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
+
+    # Tasks table migrations
+    cursor = conn.execute("PRAGMA table_info(tasks)")
+    task_cols = {row["name"] for row in cursor.fetchall()}
+    for col, typedef in [
+        ("class_required", "TEXT DEFAULT NULL"),
+        ("task_type", "TEXT DEFAULT 'bugfix'"),
+    ]:
+        if col not in task_cols:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {typedef}")
+
     conn.commit()
 
 
@@ -219,7 +243,8 @@ def hp_summary(
     if turn_input is not None:
         used = turn_input
     else:
-        used = input_tokens or 0
+        # Cumulative can exceed limit after compaction — cap it
+        used = min(input_tokens or 0, limit)
 
     if used == 0:
         return "HP unknown"
@@ -329,14 +354,14 @@ def load_onboarding(agent_class: str) -> str:
     parts: list[str] = []
 
     # Common protocol
-    protocol_path = os.path.join(RUNTIME_DIR, "protocol-common.md")
+    protocol_path = os.path.join(DOCS_DIR, "protocol-common.md")
     if os.path.exists(protocol_path):
         with open(protocol_path) as f:
             parts.append(f.read())
 
     # Class-specific protocol
     if agent_class:
-        class_path = os.path.join(RUNTIME_DIR, f"protocol-{agent_class}.md")
+        class_path = os.path.join(DOCS_DIR, f"protocol-{agent_class}.md")
         if os.path.exists(class_path):
             with open(class_path) as f:
                 parts.append(f.read())
