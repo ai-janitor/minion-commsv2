@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 
 from minion_comms.auth import CLASS_MODEL_WHITELIST, VALID_CLASSES, get_tools_for_class
 from minion_comms.db import (
+    DOCS_DIR,
     enrich_agent_row,
     format_trigger_codebook,
     get_db,
@@ -32,8 +34,8 @@ def register(
     description: str = "",
     transport: str = "terminal",
 ) -> dict[str, object]:
-    if transport not in ("terminal", "daemon"):
-        return {"error": f"Invalid transport '{transport}'. Must be 'terminal' or 'daemon'."}
+    if transport not in ("terminal", "daemon", "daemon-ts"):
+        return {"error": f"Invalid transport '{transport}'. Must be 'terminal', 'daemon', or 'daemon-ts'."}
     if agent_class not in VALID_CLASSES:
         return {"error": f"Unknown class '{agent_class}'. Valid: {', '.join(sorted(VALID_CLASSES))}"}
 
@@ -50,12 +52,13 @@ def register(
                 (name, agent_class, model, registered_at, last_seen, description, status, transport)
             VALUES (?, ?, ?, ?, ?, ?, 'waiting for work', ?)
             ON CONFLICT(name) DO UPDATE SET
-                last_seen   = excluded.last_seen,
-                agent_class = excluded.agent_class,
-                model       = COALESCE(NULLIF(excluded.model, ''), agents.model),
-                description = COALESCE(NULLIF(excluded.description, ''), agents.description),
-                transport   = excluded.transport,
-                status      = 'waiting for work'
+                last_seen        = excluded.last_seen,
+                agent_class      = excluded.agent_class,
+                model            = COALESCE(NULLIF(excluded.model, ''), agents.model),
+                description      = COALESCE(NULLIF(excluded.description, ''), agents.description),
+                transport        = excluded.transport,
+                status           = 'waiting for work',
+                hp_alerts_fired  = NULL
             """,
             (agent_name, agent_class, model or None, now, now, description or None, transport),
         )
@@ -92,9 +95,15 @@ def register(
             result["playbook"] = {
                 "type": "terminal",
                 "steps": [
-                    "Start background inbox polling: poll.sh " + agent_name + " &",
-                    "Read your protocol doc: ~/.minion-comms/docs/protocol-" + agent_class + ".md",
-                    "Set your context: minion set-context --agent " + agent_name + " --context 'loaded'",
+                    "POLLING: Run `minion poll --agent " + agent_name + "` as a BACKGROUND task (run_in_background=true). "
+                    "Do NOT append `&` to the command — use the run_in_background parameter instead. "
+                    "Do NOT add --timeout. The poll blocks forever until a message or task arrives — that is intentional. "
+                    "When the background task completes, you get a task-notification. Read the output file to get your messages/tasks. "
+                    "If the output says to restart polling, start ONE new background poll. "
+                    "If the output says Do NOT restart (stand_down/retire), stop. "
+                    "NEVER restart in a tight loop — if poll exits immediately, something is wrong. Investigate, do not retry.",
+                    "Read your protocol doc: " + os.path.join(DOCS_DIR, "protocol-" + agent_class + ".md"),
+                    "Set your context with HP: minion set-context --agent " + agent_name + " --context 'loaded, waiting for orders' --hp 95",
                     "On compaction: call minion cold-start --agent " + agent_name + " to recover state",
                 ],
             }
@@ -189,23 +198,73 @@ def set_context(
     context: str,
     tokens_used: int = 0,
     tokens_limit: int = 0,
+    hp: int | None = None,
+    files_modified: str = "",
 ) -> dict[str, object]:
     conn = get_db()
     now = now_iso()
     try:
-        conn.execute(
-            """UPDATE agents
-               SET context_summary = ?,
-                   context_updated_at = ?,
-                   last_seen = ?
-               WHERE name = ?""",
-            (context, now, now, agent_name),
-        )
+        if hp is not None:
+            # Self-reported HP path: write sentinel values to DB
+            # max(1, 100-hp) avoids hp_turn_input=0 which triggers "HP unknown" in hp_summary
+            hp_turn_input = max(1, 100 - hp)
+            conn.execute(
+                """UPDATE agents
+                   SET context_summary = ?,
+                       context_updated_at = ?,
+                       last_seen = ?,
+                       hp_turn_input = ?,
+                       hp_tokens_limit = ?,
+                       hp_updated_at = ?
+                   WHERE name = ?""",
+                (context, now, now, hp_turn_input, 100, now, agent_name),
+            )
+        else:
+            conn.execute(
+                """UPDATE agents
+                   SET context_summary = ?,
+                       context_updated_at = ?,
+                       last_seen = ?
+                   WHERE name = ?""",
+                (context, now, now, agent_name),
+            )
         conn.commit()
 
         result: dict[str, object] = {"status": "ok", "agent": agent_name, "context": context}
-        if tokens_used and tokens_limit:
+        if hp is not None:
+            result["hp"] = hp_summary(None, None, 100, turn_input=max(1, 100 - hp))
+            # Fire threshold alerts using self-reported hp value
+            from minion_comms.monitoring import _fire_hp_alerts
+            _fire_hp_alerts(agent_name, float(hp))
+        elif tokens_used and tokens_limit:
             result["hp"] = hp_summary(tokens_used, None, tokens_limit)
+
+        # Warn if agent reports modifying files they haven't claimed
+        if files_modified:
+            import os
+            from minion_comms.db import get_db as _get_db
+            conn2 = _get_db()
+            try:
+                unclaimed = []
+                for f in files_modified.split(","):
+                    f = f.strip()
+                    if not f:
+                        continue
+                    normalized = os.path.abspath(f)
+                    row = conn2.execute(
+                        "SELECT agent_name FROM file_claims WHERE file_path = ?", (normalized,)
+                    ).fetchone()
+                    if not row or row["agent_name"] != agent_name:
+                        unclaimed.append(f)
+                if unclaimed:
+                    result["unclaimed_files"] = unclaimed
+                    result["claim_warning"] = (
+                        "Editing unclaimed files — "
+                        + " ".join(f"minion claim-file --agent {agent_name} --file {f}" for f in unclaimed)
+                    )
+            finally:
+                conn2.close()
+
         return result
     finally:
         conn.close()
@@ -229,6 +288,10 @@ def send(
     message: str,
     cc: str = "",
 ) -> dict[str, object]:
+    # Normalize broadcast alias
+    if to_agent == "broadcast":
+        to_agent = "all"
+
     conn = get_db()
     cursor = conn.cursor()
     now = now_iso()
@@ -330,11 +393,26 @@ def send(
         if triggers_found:
             result["triggers"] = triggers_found
 
-        # Transport-based poll reminder
-        cursor.execute("SELECT transport FROM agents WHERE name = ?", (from_agent,))
+        # Transport-based poll reminder + task nudge for leads
+        cursor.execute("SELECT transport, agent_class FROM agents WHERE name = ?", (from_agent,))
         sender_row = cursor.fetchone()
         if sender_row and sender_row["transport"] == "terminal":
-            result["reminder"] = "Ensure poll.sh is running so you don't miss replies."
+            result["reminder"] = "Ensure 'minion poll' is running so you don't miss replies."
+        if sender_row and sender_row["agent_class"] == "lead" and to_agent != "all":
+            cursor.execute(
+                "SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status IN ('open', 'assigned', 'in_progress')",
+                (to_agent,),
+            )
+            if cursor.fetchone()[0] == 0:
+                result["nudge"] = f"No open task found for {to_agent} — create one with `create-task`"
+
+        # Artifact nudge: large messages with no file path reference likely contain inline artifacts
+        _FILE_PATH_SIGNALS = (".minion-comms/", ".md\n", ".md ", ".md\t", ".md'", '.md"')
+        if len(message) > 500 and not any(sig in message for sig in _FILE_PATH_SIGNALS):
+            result["artifact_reminder"] = (
+                "Large message without a file path detected. "
+                "SDLC artifacts should be written to .minion-comms/ first, then referenced by path."
+            )
 
         return result
     finally:
@@ -394,6 +472,18 @@ def check_inbox(agent_name: str) -> dict[str, object]:
         result: dict[str, object] = {"messages": all_messages}
         if stale_msg:
             result["warning"] = stale_msg.replace("BLOCKED: ", "")
+
+        cursor.execute(
+            "SELECT transport, hp_tokens_limit FROM agents WHERE name = ?",
+            (agent_name,),
+        )
+        agent_row = cursor.fetchone()
+        if agent_row and agent_row["transport"] == "terminal" and agent_row["hp_tokens_limit"] is None:
+            result["hp_reminder"] = (
+                f"HP unknown — report with: "
+                f"minion set-context --agent {agent_name} --context '...' --hp <0-100>"
+            )
+
         return result
     finally:
         conn.close()

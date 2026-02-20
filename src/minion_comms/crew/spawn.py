@@ -83,6 +83,7 @@ def spawn_party(
     crew: str,
     project_dir: str = ".",
     agents: str = "",
+    runtime: str = "python",
 ) -> dict[str, object]:
     if not shutil.which("tmux"):
         return {"error": "BLOCKED: tmux required. brew install tmux"}
@@ -110,6 +111,11 @@ def spawn_party(
 
     project_dir = os.path.abspath(project_dir)
     crew_cfg["project_dir"] = project_dir
+
+    # Inject per-project comms DB path so spawned daemons find the right DB
+    project_name = os.path.basename(project_dir)
+    crew_cfg["comms_db"] = os.path.expanduser(f"~/.minion_work/{project_name}/minion.db")
+    crew_cfg["docs_dir"] = os.path.expanduser("~/.minion_work/docs")
 
     # --- Backward compat: merge legacy lead: section into agents ---
     lead_cfg = crew_cfg.pop("lead", None)
@@ -178,10 +184,15 @@ def spawn_party(
 
     for name in all_agent_names:
         cfg = all_agents_cfg[name]
+        transport = cfg.get("transport", "daemon")
+        # Skip terminal agents already registered — they're alive, don't clobber
+        if transport == "terminal" and name in registered:
+            continue
         _register(
             agent_name=name,
             agent_class=_role_to_class(cfg.get("role", "coder")),
-            transport=cfg.get("transport", "daemon"),
+            model=cfg.get("model", ""),
+            transport=transport,
         )
         registered.add(name)
 
@@ -259,6 +270,9 @@ def spawn_party(
         transport = cfg.get("transport", "daemon")
 
         if transport == "terminal":
+            if agent in registered:
+                # Already alive in a terminal session — skip spawning
+                continue
             spawn_terminal(agent, project_dir, cfg)
             spawned_agents.append(agent)
             continue
@@ -270,12 +284,12 @@ def spawn_party(
         session_exists = True
         spawned_agents.append(agent)
 
-        style_pane(tmux_session, pane_idx, agent, agent_roles.get(agent, ""))
+        style_pane(tmux_session, pane_idx, agent, agent_roles.get(agent, ""), model=resolved_cfgs.get(agent, {}).get("model", ""))
         pane_idx += 1
 
-    finalize_layout(tmux_session, is_new)
+    finalize_layout(tmux_session, is_new, pane_count=pane_idx)
 
-    # Start minion-swarm for daemon agents (staggered to avoid API stampede)
+    # Start daemons — per-agent runtime from transport, global --runtime as fallback
     import time
     daemon_list = [
         a for a in spawned_agents
@@ -284,7 +298,14 @@ def spawn_party(
     for i, agent in enumerate(daemon_list):
         if i > 0:
             time.sleep(0.25)
-        start_swarm(agent, crew_config, project_dir)
+        transport = resolved_cfgs.get(agent, {}).get("transport", "daemon")
+        if transport == "daemon-ts":
+            agent_runtime = "ts"
+        elif transport == "daemon":
+            agent_runtime = runtime  # global --runtime flag as fallback
+        else:
+            agent_runtime = "python"
+        start_swarm(agent, crew_config, project_dir, runtime=agent_runtime)
 
     result_dict: dict[str, object] = {
         "status": "spawned",
