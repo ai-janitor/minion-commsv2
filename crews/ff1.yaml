@@ -106,7 +106,7 @@ agents:
     role: recon
     zone: "External investigation"
     provider: gemini
-    model: gemini-3-flash
+    model: gemini-3-flash-preview
     permission_mode: bypassPermissions
     allowed_tools: "Read,Glob,Grep,Bash,WebSearch,WebFetch"
     system: |

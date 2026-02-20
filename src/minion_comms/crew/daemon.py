@@ -44,7 +44,18 @@ def spawn_pane(
     return True
 
 
-TS_DAEMON_DIR = os.path.expanduser("~/projects/minion-swarm/ts-daemon")
+def _find_ts_daemon_dir() -> str:
+    """Locate ts-daemon directory: env var, then sibling of minion-swarm package."""
+    if os.environ.get("MINION_TS_DAEMON_DIR"):
+        return os.environ["MINION_TS_DAEMON_DIR"]
+    try:
+        import minion_swarm
+        candidate = os.path.join(os.path.dirname(os.path.dirname(minion_swarm.__file__)), "ts-daemon")
+        if os.path.isdir(candidate):
+            return candidate
+    except ImportError:
+        pass
+    return os.path.expanduser("~/.minion-swarm/ts-daemon")
 
 
 def start_swarm(agent: str, crew_config: str, project_dir: str, runtime: str = "python") -> None:
@@ -61,7 +72,7 @@ def start_swarm(agent: str, crew_config: str, project_dir: str, runtime: str = "
         env.pop("CLAUDECODE", None)
         subprocess.Popen(
             ["npx", "tsx", "src/main.ts", "--config", crew_config, "--agent", agent],
-            cwd=TS_DAEMON_DIR,
+            cwd=_find_ts_daemon_dir(),
             stdin=subprocess.DEVNULL,
             stdout=log_fp,
             stderr=subprocess.STDOUT,
